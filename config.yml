@@ -1,31 +1,21 @@
 dbConfig:
   - connectionName: devDb
-    host: 192.168.10.110
+    host: 192.168.1.124
     port: 3307
     userName: root
-    password: Huawei123
+    password: 123456
   - connectionName: testDb
-    host: 192.168.10.110
+    host: 192.168.1.124
     port: 3307
     userName: root
-    password: Huawei123
+    password: 123456
 dumpConfig:
-  - dbName: oyetalk-pay
+  - dbName: test-pay
     tableName: t_order
-    whereOperation: 1=1
-    backFilePath: /home/tp/
-    s3BackDir: oyetalk-status/
-    s3Bucket: oyetalk-test
-    autoDelete: true
-    deleteLimit: 1
-    dumpUseDb: devDb
-    deleteUseDb: testDb
-  - dbName: oyetalk-account
-    tableName: t_operation
-    whereOperation: 1=1
-    backFilePath: /home/tp/
-    s3BackDir: oyetalk-status/
-    s3Bucket: oyetalk-test
+    whereOperation: create_time>'2021-04-10' and create_time<'2021-04-13'
+    backFilePath: /home/aaa/
+    s3BackDir: test-status/
+    s3Bucket: test-test
     autoDelete: true
     deleteLimit: 1
     dumpUseDb: devDb
