@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -63,8 +64,9 @@ func init() {
 	log.SetOutput(io.MultiWriter(writer3))
 }
 func main() {
+	var wg sync.WaitGroup
 	config := GetConfig()
-	BackupMySqlDb(config)
+	BackupMySqlDb(config, &wg)
 
 }
 
@@ -78,56 +80,65 @@ func getDbConfig(connectionName string, dbConfig []DbConfig) DbConfig {
 }
 
 // BackupMySqlDb 备份脚本
-func BackupMySqlDb(config Config) {
+func BackupMySqlDb(config Config, waitGroup *sync.WaitGroup) {
 	log.Info("准备执行脚本", config)
 	//在这里如果没有传输表名，那么将会备份整个数据库，否则将只备份自己传入的表
 	for _, dump := range config.DumpConfig {
-		if dump.WhereOperation == "" {
-			log.Error("dump where 条件为空!!")
-			continue
-		}
-		dbConfig := getDbConfig(dump.DumpUseDb, config.DbConfig)
-		if dbConfig.Host == "" {
-			log.Error("数据库链接错误，请检查,")
-			return
-		}
-		var s string
-		fileName := fmt.Sprintf("%s_%s.sql.gz", dump.TableName, time.Now().Format("20060102"))
-		backFilePath := dump.BackFilePath + fileName
-		if dump.TableName == "" {
-			s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t --column-statistics=0 -h%s -P%s  -u%s -p%s --databases %s --compress --verbose  | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, backFilePath)
-		} else if dump.WhereOperation == "" {
-			s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t --column-statistics=0 -h%s -P%s  -u%s -p%s --databases %s --tables %s --compress --verbose | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, dump.TableName, backFilePath)
-		} else {
-			s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t --column-statistics=0 -h%s -P%s  -u%s -p%s --databases %s --tables %s --compress --verbose --where=\"%s\" | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, dump.TableName, dump.WhereOperation, backFilePath)
-		}
-		log.Info("mysql dump脚本生成成功", s)
-		out, err := exec.Command("bash", "-c", s).Output()
-		if err != nil {
-			log.Error("执行mysql dump失败: ", s)
-			continue
-		}
-		log.Info("dump脚本执行完毕", string(out))
-		//out, err = exec.Command("bash", "-c", "aws s3 ls s3://oyetalk-test/oyetalk-status/").Output()
-		//log.Println("查询s3结果", string(out))
-		tmpDistPath := dump.S3BackDir + time.Now().Format("20060102") + "/"
-		distPath := "s3://" + dump.S3Bucket + "/" + tmpDistPath
-		//开始push 到s3
-		c := exec.Command("aws", "s3", "cp", backFilePath, distPath)
-		log.Info("执行上传s3的命令是", c.String())
-		output, err := c.CombinedOutput()
-		if err != nil {
-			log.Error("上传s3失败: ", err)
-			continue
-		}
-		log.Info("上传s3结束:", string(output))
-		//开始查询是否上传成功
-		queryResult := checkS3File(dump.S3Bucket, tmpDistPath+fileName)
-		log.Info("查询s3结果", queryResult)
-		if dump.AutoDelete && queryResult {
-			log.Info("准备开始执行清理备份语句")
-			deleteBackData(config, dump.DbName, dump.TableName, dump.WhereOperation, dump.DeleteLimit, dump.DeleteUseDb)
-		}
+		waitGroup.Add(1)
+		go dumpOperation(dump, config, waitGroup)
+	}
+	waitGroup.Wait()
+
+}
+
+func dumpOperation(dump DumpConfig, config Config, waitGroup *sync.WaitGroup) {
+	defer waitGroup.Done()
+
+	if dump.WhereOperation == "" {
+		log.Error("dump where 条件为空!!")
+		return
+	}
+	dbConfig := getDbConfig(dump.DumpUseDb, config.DbConfig)
+	if dbConfig.Host == "" {
+		log.Error("数据库链接错误，请检查,")
+		return
+	}
+	var s string
+	fileName := fmt.Sprintf("%s_%s.sql.gz", dump.TableName, time.Now().Format("200601020105"))
+	backFilePath := dump.BackFilePath + fileName
+	if dump.TableName == "" {
+		s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t -h%s -P%s  -u%s -p%s --databases %s --compress --verbose  | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, backFilePath)
+	} else if dump.WhereOperation == "" {
+		s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t  -h%s -P%s  -u%s -p%s --databases %s --tables %s --compress --verbose | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, dump.TableName, backFilePath)
+	} else {
+		s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t  -h%s -P%s  -u%s -p%s --databases %s --tables %s --compress --verbose --where='%s' | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, dump.TableName, dump.WhereOperation, backFilePath)
+	}
+	log.Info("mysql dump脚本生成成功", s)
+	out, err := exec.Command("bash", "-c", s).Output()
+	if err != nil {
+		log.Error("执行mysql dump失败: ", s)
+		return
+	}
+	log.Info("dump脚本执行完毕", string(out))
+	//out, err = exec.Command("bash", "-c", "aws s3 ls s3://oyetalk-test/oyetalk-status/").Output()
+	//log.Println("查询s3结果", string(out))
+	tmpDistPath := dump.S3BackDir + time.Now().Format("200601") + "/" + time.Now().Format("20060102") + "/"
+	distPath := "s3://" + dump.S3Bucket + "/" + tmpDistPath
+	//开始push 到s3
+	c := exec.Command("aws", "s3", "cp", backFilePath, distPath)
+	log.Info("执行上传s3的命令是", c.String())
+	output, err := c.CombinedOutput()
+	if err != nil {
+		log.Error("上传s3失败: ", err)
+		return
+	}
+	log.Info("上传s3结束:", string(output))
+	//开始查询是否上传成功
+	queryResult := checkS3File(dump.S3Bucket, tmpDistPath+fileName)
+	log.Info("查询s3结果", queryResult)
+	if dump.AutoDelete && queryResult {
+		log.Info("准备开始执行清理备份语句")
+		deleteBackData(config, dump.DbName, dump.TableName, dump.WhereOperation, dump.DeleteLimit, dump.DeleteUseDb)
 	}
 
 }

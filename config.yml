@@ -12,7 +12,17 @@ dbConfig:
 dumpConfig:
   - dbName: oyetalk-pay
     tableName: t_order
-    whereOperation: create_time>'2021-04-10' and create_time<'2021-04-13'
+    whereOperation: 1=1
+    backFilePath: /home/tp/
+    s3BackDir: oyetalk-status/
+    s3Bucket: oyetalk-test
+    autoDelete: true
+    deleteLimit: 1
+    dumpUseDb: devDb
+    deleteUseDb: testDb
+  - dbName: oyetalk-account
+    tableName: t_operation
+    whereOperation: 1=1
     backFilePath: /home/tp/
     s3BackDir: oyetalk-status/
     s3Bucket: oyetalk-test
