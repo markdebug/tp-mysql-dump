@@ -104,7 +104,7 @@ func dumpOperation(dump DumpConfig, config Config, waitGroup *sync.WaitGroup) {
 		return
 	}
 	var s string
-	fileName := fmt.Sprintf("%s_%s.sql.gz", dump.TableName, time.Now().Format("200601020105"))
+	fileName := fmt.Sprintf("%s_%s.sql.gz", dump.TableName, time.Now().Format("200601021504"))
 	backFilePath := dump.BackFilePath + fileName
 	if dump.TableName == "" {
 		s = fmt.Sprintf("mysqldump  --lock-tables=false --skip-extended-insert -t -h%s -P%s  -u%s -p%s --databases %s --compress --verbose  | gzip > %s", dbConfig.Host, dbConfig.Port, dbConfig.UserName, dbConfig.Password, dump.DbName, backFilePath)
